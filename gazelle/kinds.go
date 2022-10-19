@@ -7,7 +7,7 @@ import (
 const (
 	pyBinaryKind  = "py_binary"
 	pyLibraryKind = "py_library"
-	pyTestKind    = "py_test"
+	pyTestKind    = "pytest_test"
 )
 
 // Kinds returns a map that maps rule names (kinds) and information on how to
@@ -77,12 +77,14 @@ func (py *Python) Loads() []rule.LoadInfo {
 }
 
 var pyLoads = []rule.LoadInfo{
-	{
-		Name: "@rules_python//python:defs.bzl",
-		Symbols: []string{
-			pyBinaryKind,
-			pyLibraryKind,
-			pyTestKind,
+	/*
+		{
+			Name: "@rules_python//python:defs.bzl",
+			Symbols: []string{
+				pyBinaryKind,
+				pyLibraryKind,
+				pyTestKind,
+			},
 		},
-	},
+	*/
 }

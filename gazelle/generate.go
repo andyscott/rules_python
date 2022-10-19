@@ -67,35 +67,31 @@ func (py *Python) GenerateRules(args language.GenerateArgs) language.GenerateRes
 	// this package or not.
 	hasPyBinary := false
 
-	// hasPyTestFile and hasPyTestTarget control whether a py_test target should
-	// be generated for this package or not.
-	hasPyTestFile := false
-	hasPyTestTarget := false
+	pyTestTargetName := cfg.RenderTestName(packageName)
+
+	// we use this keep track of files that the user has manually organized into their
+	// own targets
+	pyConsumedFilenames := treeset.NewWith(godsutils.StringComparator)
+
+	for _, rule := range args.File.Rules {
+		if rule.Kind() == pyTestKind && rule.Name() != pyTestTargetName {
+			for _, src := range rule.AttrStrings("srcs") {
+				pyConsumedFilenames.Add(src)
+			}
+		}
+	}
 
 	for _, f := range args.RegularFiles {
-		if cfg.IgnoresFile(filepath.Base(f)) {
+		if cfg.IgnoresFile(filepath.Base(f)) || pyConsumedFilenames.Contains(f) {
 			continue
 		}
 		ext := filepath.Ext(f)
 		if !hasPyBinary && f == pyBinaryEntrypointFilename {
 			hasPyBinary = true
-		} else if !hasPyTestFile && f == pyTestEntrypointFilename {
-			hasPyTestFile = true
-		} else if strings.HasSuffix(f, "_test.py") || (strings.HasPrefix(f, "test_") && ext == ".py") {
+		} else if strings.HasSuffix(f, "_test.py") || (strings.HasPrefix(f, "test_") && ext == ".py") || f == pyTestEntrypointFilename {
 			pyTestFilenames.Add(f)
 		} else if ext == ".py" {
 			pyLibraryFilenames.Add(f)
-		}
-	}
-
-	// If a __test__.py file was not found on disk, search for targets that are
-	// named __test__.
-	if !hasPyTestFile && args.File != nil {
-		for _, rule := range args.File.Rules {
-			if rule.Name() == pyTestEntrypointTargetname {
-				hasPyTestTarget = true
-				break
-			}
 		}
 	}
 
@@ -172,6 +168,27 @@ func (py *Python) GenerateRules(args language.GenerateArgs) language.GenerateRes
 		}
 	}
 
+	/*
+		// If a __test__.py file was not found on disk, search for targets that are
+		// named __test__.
+		if !hasPyTestFile && args.File != nil {
+			for _, rule := range args.File.Rules {
+				if rule.Name() == pyTestEntrypointTargetname {
+					hasPyTestTarget = true
+					break
+				}
+			}
+		}
+	*/
+
+	/*
+		for _, rule := range args.File.Rules {
+			for _, src := rule.AttrStrings("srcs") {
+
+			}
+		}
+	*/
+
 	parser := newPython3Parser(args.Config.RepoRoot, args.Rel, cfg.IgnoresDependency)
 	visibility := fmt.Sprintf("//%s:__subpackages__", pythonProjectRoot)
 
@@ -179,13 +196,6 @@ func (py *Python) GenerateRules(args language.GenerateArgs) language.GenerateRes
 	result.Gen = make([]*rule.Rule, 0)
 
 	collisionErrors := singlylinkedlist.New()
-
-	if !hasPyTestFile && !hasPyTestTarget {
-		it := pyTestFilenames.Iterator()
-		for it.Next() {
-			pyLibraryFilenames.Add(it.Value())
-		}
-	}
 
 	var pyLibrary *rule.Rule
 	if !pyLibraryFilenames.Empty() {
@@ -267,18 +277,11 @@ func (py *Python) GenerateRules(args language.GenerateArgs) language.GenerateRes
 		result.Imports = append(result.Imports, pyBinary.PrivateAttr(config.GazelleImportsKey))
 	}
 
-	if hasPyTestFile || hasPyTestTarget {
-		if hasPyTestFile {
-			// Only add the pyTestEntrypointFilename to the pyTestFilenames if
-			// the file exists on disk.
-			pyTestFilenames.Add(pyTestEntrypointFilename)
-		}
+	if !pyTestFilenames.Empty() {
 		deps, err := parser.parse(pyTestFilenames)
 		if err != nil {
 			log.Fatalf("ERROR: %v\n", err)
 		}
-
-		pyTestTargetName := cfg.RenderTestName(packageName)
 
 		// Check if a target with the same name we are generating alredy exists,
 		// and if it is of a different kind from the one we are generating. If
@@ -302,14 +305,7 @@ func (py *Python) GenerateRules(args language.GenerateArgs) language.GenerateRes
 			addModuleDependencies(deps).
 			generateImportsAttribute()
 
-		if hasPyTestTarget {
-			entrypointTarget := fmt.Sprintf(":%s", pyTestEntrypointTargetname)
-			main := fmt.Sprintf(":%s", pyTestEntrypointFilename)
-			pyTestTarget.
-				addSrc(entrypointTarget).
-				addResolvedDependency(entrypointTarget).
-				setMain(main)
-		} else {
+		if pyTestFilenames.Contains(pyTestEntrypointFilename) {
 			pyTestTarget.setMain(pyTestEntrypointFilename)
 		}
 
